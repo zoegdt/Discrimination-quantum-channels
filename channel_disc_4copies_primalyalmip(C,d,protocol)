@@ -1,0 +1,171 @@
+function  [pS,T,W] = channel_discrimination_4copies_primalyalmip(C,d,protocol)
+dIn  = d(1);
+dOut = d(2);
+N     = size(C,3);
+
+k=4;
+yalmip('clear');
+
+
+
+switch protocol   
+%%%%%%%%%%%%%%%%%%%%% PARALLEL TESTERS %%%%%%%%%%%%%%%%%%%%%
+    case 1
+     pS=0;
+     T = sdpvar((dIn*dOut)^k,(dIn*dOut)^k,N,'hermitian');% In here we are just using real variables
+%% otherwise T = sdpvar((dIn*dOut)^k,(dIn*dOut)^k,N,'hermitian','complex')
+     W = sum(T,3);
+   
+     for i=1:N
+         pS = pS + (1/N)* trace(T(:,:,i) * Tensor(C(:,:,i),k) );
+         %W = W + T(:,:,i);
+     end
+     W=sum(W(:,:,3));
+     F = [ W == TR(W,[2 4 6 8],DIM),trace(W) == dOut^k];
+  
+     maximise pS;  
+     solution = solvesdp(F,-p_succ,sdpsettings('solver','scs','verbose',1,'cachesolvers',1));
+
+%%%%%%%%%%%%%%%%%%%%% SEQUENTIAL TESTERS %%%%%%%%%%%%%%%%%%%%%
+    case 2
+
+
+    T = sdpvar(dIn*dOut,dIn*dOut,N,'hermitian');%Again, here we are using real variables, otherwise T = sdpvar(dIn*dOut,dIn*dOut,N,'hermitian','complex')
+    W = sum(T,3);
+     
+     for i=1:N
+         pS = pS + 1/N *trace(T(:,:,i) * Tensor(C(:,:,i),k) );
+         %W = W + T(:,:,i);
+     end
+     W=sum(W(:,:,3));
+     
+    F=[ W == TR(W,[8],DIM), 
+        PartialTrace(W,[8 7],[d d d d d d d d]) == kron(PartialTrace(W,[8 7 6],[d d d d d d d d]),eye(d)/d),
+        PartialTrace(W,[8 7 6 5],[d d d d d d d d]) == kron(PartialTrace(W,[8 7 6 5 4],[d d d d d d d d]),eye(d)/d),
+     PartialTrace(W,[8 7 6 5 4 3],[d d d d d d d d]) == kron(PartialTrace(W,[8 7 6 5 4 3 2],[d d d d d d d d]),eye(d)/d),
+     trace(W) == dOut^4];%% MODIFIED TO d^4
+  
+     maximise pS;  
+     solution = solvesdp(F,-p_succ,sdpsettings('solver','scs','verbose',1,'cachesolvers',1));
+
+%Conditions for k=2 and k=3
+% W == TR(W,[4],DIM);
+%      TR(W,[4 3],DIM) == TR(W,[4 3 2],DIM);
+%      trace(W) == dOut^2;
+
+% W == TR(W,[6],DIM);
+ %     PartialTrace(W,[6 5],[d d d d d d]) == kron(PartialTrace(W,[6 5 4],[d d d d d d]),eye(d)/d);
+ %     PartialTrace(W,[6 5 4 3],[d d d d d d]) == kron(PartialTrace(W,[6 5 4 3 2],[d d d d d d]),eye(d)/d);
+ %     trace(W) == dOut^3;
+
+%%%%%%%%%%%%%%%%%%%%% GENERAL TESTERS %%%%%%%%%%%%%%%%%%%%%
+    case 3
+
+     T = sdpvar(dIn*dOut,dIn*dOut,N,'hermitian');%Using real variables, otherwise T = sdpvar(dIn*dOut,dIn*dOut,N,'hermitian',çomplex')
+     W = sum(T,3);
+     pS=0;
+     
+     
+     for i=1:N
+         pS = pS + 1/N * trace(T(:,:,i) * Tensor(C(:,:,i),k) );
+         %W = W + T(:,:,i);
+     end
+     W=sum(W(:,:,3));
+
+
+%L_A(W)=W 
+    F=[TR(W,[1 2 3 4 5 6],DIM) == TR(W,[1 2 3 4 5 6 8],DIM),
+    TR(W,[1 2 3 4 7 8],DIM) == TR(W,[1 2 3 4 6 7 8],DIM),
+    TR(W,[1 2 5 6 7 8],DIM) == TR(W,[1 2 4 5 6 7 8],DIM),
+    TR(W,[3 4 5 6 7 8],DIM) == TR(W,[2 3 4 5 6 7 8],DIM)];
+
+
+%L_AB(W)=W 
+    F=F+[TR(W,[5 6 7 8],DIM) + TR(W,[2 4 5 6 7 8],DIM) == TR(W,[2 5 6 7 8],DIM) + TR(W,[4 5 6 7 8],DIM),
+    TR(W,[1 2 3 4],DIM) + TR(W,[1 2 3 4 6 8],DIM) == TR(W,[1 2 3 4 6],DIM) + TR(W,[1 2 3 4 8],DIM), %L_CD(W)=W 
+    TR(W,[1 2 5 6],DIM) + TR(W,[1 2 4 5 6 8],DIM) == TR(W,[1 2 4 5 6],DIM) +  TR(W,[1 2 5 6 8],DIM), %L_BD(W)=W 
+    TR(W,[1 2 7 8],DIM) + TR(W,[1 2 4 6 7 8],DIM) == TR(W,[1 2 4 7 8],DIM) +  TR(W,[1 2 6 7 8],DIM), %%L_BC(W)=W 
+    TR(W,[3 4 5 6],DIM) + TR(W,[2 3 4 5 6 8],DIM) == TR(W,[2 3 4 5 6],DIM) +  TR(W,[3 4 5 6 8],DIM), %L_AD(W)=W 
+    TR(W,[3 4 7 8],DIM) + TR(W,[2 3 4 6 7 8],DIM) == TR(W,[2 3 4 7 8],DIM) +  TR(W,[3 4 6 7 8],DIM)]; %L_AC(W)=W 
+
+%L_ABC(W)=W 
+    F=F+[TR(W,[7 8],DIM) + TR(W,[2 4 7 8],DIM) + TR(W,[2 6 7 8],DIM) + TR(W,[4 6 7 8],DIM) == TR(W,[2 7 8],DIM) + TR(W,[4 7 8],DIM) + TR(W,[6 7 8],DIM) + TR(W,[2 4 6 7 8],DIM),
+    TR(W,[5 6],DIM) + TR(W,[2 4 5 6],DIM) + TR(W,[2 5 6 8],DIM) + TR(W,[4 5 6 8],DIM) == TR(W,[2 5 6],DIM) + TR(W,[4 5 6],DIM) + TR(W,[5 6 8],DIM) + TR(W,[2 4 5 6 8],DIM), %L_{ABD}(W)
+    TR(W,[3 4],DIM) + TR(W,[2 3 4 6],DIM) + TR(W,[2 3 4 8],DIM) + TR(W,[3 4 6 8],DIM) == TR(W,[2 3 4],DIM) + TR(W,[3 4 6],DIM) + TR(W,[3 4 8],DIM) + TR(W,[2 3 4 6 8],DIM), %L_{ACD}(W)
+    TR(W,[1 2],DIM) + TR(W,[1 2 4 6],DIM) + TR(W,[1 2 6 8],DIM) + TR(W,[1 2 4 8],DIM) == TR(W,[1 2 6],DIM) + TR(W,[1 2 4],DIM) + TR(W,[1 2 8],DIM) + TR(W,[1 2 4 6 8],DIM)]; %L_{BCD}(W)
+    
+    %L_V(W)
+F=F+[W ==  TR(W,[1 2 3 4 6 7 8],DIM)- TR(W,[1 2 3 4 5 6],DIM) + TR(W,[1 2 3 4 5 6 8],DIM) - TR(W,[1 2 3 4 7 8],DIM)  - TR(W,[1 2 5 6 7 8],DIM) + TR(W,[1 2 4 5 6 7 8],DIM) - TR(W,[3 4 5 6 7 8],DIM) + TR(W,[2 3 4 5 6 7 8],DIM)- TR(W,[5 6 7 8],DIM) - TR(W,[2 4 5 6 7 8],DIM) +TR(W,[2 5 6 7 8],DIM) + TR(W,[4 5 6 7 8],DIM) - TR(W,[1 2 3 4],DIM) - TR(W,[1 2 3 4 6 8],DIM) + TR(W,[1 2 3 4 6],DIM) + TR(W,[1 2 3 4 8],DIM) - TR(W,[1 2 5 6],DIM) - TR(W,[1 2 4 5 6 8],DIM) + TR(W,[1 2 4 5 6],DIM) +  TR(W,[1 2 5 6 8],DIM) - TR(W,[1 2 7 8],DIM) - TR(W,[1 2 4 6 7 8],DIM) + TR(W,[1 2 4 7 8],DIM) +  TR(W,[1 2 6 7 8],DIM) - TR(W,[3 4 5 6],DIM) - TR(W,[2 3 4 5 6 8],DIM) + TR(W,[2 3 4 5 6],DIM) +  TR(W,[3 4 5 6 8],DIM) - TR(W,[3 4 7 8],DIM) + TR(W,[2 3 4 6 7 8],DIM) + TR(W,[2 3 4 7 8],DIM) +  TR(W,[3 4 6 7 8],DIM) - TR(W,[7 8],DIM) - TR(W,[2 4 7 8],DIM) - TR(W,[2 6 7 8],DIM) - TR(W,[4 6 7 8],DIM) + TR(W,[2 7 8],DIM) + TR(W,[4 7 8],DIM) + TR(W,[6 7 8],DIM) + TR(W,[2 4 6 7 8],DIM) - TR(W,[5 6],DIM) -  TR(W,[2 4 5 6],DIM) - TR(W,[2 5 6 8],DIM) - TR(W,[4 5 6 8],DIM) + TR(W,[2 5 6],DIM) + TR(W,[4 5 6],DIM) + TR(W,[5 6 8],DIM) + TR(W,[2 4 5 6 8],DIM) - TR(W,[3 4],DIM) - TR(W,[2 3 4 6],DIM) - TR(W,[2 3 4 8],DIM) - TR(W,[3 4 6 8],DIM) + TR(W,[2 3 4],DIM) + TR(W,[3 4 6],DIM) + TR(W,[3 4 8],DIM) + TR(W,[2 3 4 6 8],DIM) - TR(W,[1 2],DIM) - TR(W,[1 2 4 6],DIM) - TR(W,[1 2 6 8],DIM) - TR(W,[1 2 4 8],DIM) + TR(W,[1 2 6],DIM) + TR(W,[1 2 4],DIM) + TR(W,[1 2 8],DIM) + TR(W,[1 2 4 6 8],DIM)]; 
+       
+
+
+    
+    F=F+[trace(W) == dOut^4];% Normalization
+%
+     
+%%% Conditions for k=2 and k=3
+     %  TR(W,[1 2],DIM) == TR(W,[1 2 4],DIM);
+     % TR(W,[3 4],DIM) == TR(W,[2 3 4],DIM);
+     % W == TR(W,2,DIM) + TR(W,4,DIM) - TR(W,[2 4],DIM);
+     % trace(W) == dOut^2;
+
+     % TR(W,[1 2 3 4],DIM) == TR(W,[1 2 3 4 6],DIM);
+     % TR(W,[3 4 5 6],DIM) == TR(W,[2 3 4 5 6],DIM);
+     % TR(W,[1 2 5 6],DIM) == TR(W,[1 2 4 5 6],DIM);
+     % TR(W,[1 2],DIM) + TR(W,[1 2 4 6],DIM) ==  TR(W,[1 2 4],DIM) +  TR(W,[1 2 6],DIM);
+     % TR(W,[3 4],DIM) + TR(W,[2 3 4 6],DIM) ==  TR(W,[2 3 4],DIM) +  TR(W,[3 4 6],DIM);
+     % TR(W,[5 6],DIM) + TR(W,[2 4 5 6],DIM) ==  TR(W,[4 5 6],DIM) +  TR(W,[2 5 6],DIM);
+     % W == TR(W,[2 4 6],DIM) + TR(W,2,DIM) + TR(W,4,DIM) + TR(W,6,DIM) - TR(W,[2 4],DIM) - TR(W,[2 6],DIM) - TR(W,[4 6],DIM);
+     % trace(W) == dOut^3;
+  
+     maximise pS;  
+     solution = solvesdp(F,-p_succ,sdpsettings('solver','mosek','verbose',1,'cachesolvers',1));
+%%%%%%%%%%%%%%%%%%%%% ERROR MESSAGE %%%%%%%%%%%%%%%%%%%%%
+    otherwise
+        'ERROR!!'
+        'Set protocol equals 1 for PAR, 2 for SEQ, and 4 for GEN'
+        pause
+end
+
+
+solution = solvesdp(F,-p_succ,sdpsettings('solver','scs','verbose',1,'cachesolvers',1))
+
+% convert from SDPvar to double
+T = double(T); 
+W= double(W);
+p_succ = double(p_succ);
+
+
+
+
+
+
+
+
+
+
+
+
+
+% % declare SDP variables
+% T = sdpvar(d_in*d_out,d_in*d_out,N,'hermitian','complex');
+% W = sum(T,3):
+% % save all constraints as a single variable "F"
+% F = [trace(sum(T,3))==d_out,
+%     sum(T,3)==kron(PartialTrace(sum(T,3),2,[d_in d_out]),eye(d_out)/d_out)
+%     ];
+% 
+% p_succ = 0;
+% for i=1:N
+%     F = F + [T(:,:,i)>=0];
+%     p_succ = p_succ + (1/N)*real(trace(T(:,:,i)*C(:,:,i)));
+% end
+% 
+% % solvesdp(constraints, objective, sdpsettings('solver','solvername',verbose,0/1,'cachesolvers',0/1)
+% % objective function is always minimized, so to maximize J, the objective function must be -J.
+% 
+% solution = solvesdp(F,-p_succ,sdpsettings('solver','mosek','verbose',1,'cachesolvers',1))
+% 
+% % convert from SDPvar to double
+% T = double(T); 
+% p_succ = double(p_succ);
